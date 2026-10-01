@@ -22,7 +22,9 @@ env:
 jobs:
   build:
     name: Build and push native-audio image
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: the Next production pass needs a known RAM
+    # class. Matches upstream .github/workflows/docker-publish.yml.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -104,8 +106,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           provenance: false
           build-args: |
-            OMNIROUTE_BUILD_MEMORY_MB=6144
+            OMNIROUTE_BUILD_MEMORY_MB=12288
             OMNIROUTE_USE_TURBOPACK=0
-            OMNIROUTE_BUILD_WORKERS=2
           cache-from: type=gha
           cache-to: type=gha,mode=max
