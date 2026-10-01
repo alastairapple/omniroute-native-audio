@@ -1,0 +1,9 @@
+# The upstream checkout pulled in by CI for the build (large, not ours).
+upstream/
+
+# Local scratch
+node_modules/
+*.wav
+*.mp3
+.env
+.env.*

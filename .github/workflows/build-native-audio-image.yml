@@ -1,0 +1,110 @@
+name: Build native-audio image
+
+# Builds the OmniRoute container with the native audio provider overlay applied
+# and pushes it to ghcr.io/alastairapple/omniroute:native-audio.
+#
+# The overlay files are committed at the repo root, mirroring their paths inside
+# the OmniRoute tree. This workflow checks out upstream OmniRoute at a pinned
+# revision, copies the overlay over it, and builds from the upstream Dockerfile.
+# GitHub-hosted runners have the RAM this host does not (the better-sqlite3 and
+# Next.js build stages OOM on a 15 GB / 8 GB-swap box).
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/omniroute
+  IMAGE_TAG: native-audio
+
+jobs:
+  build:
+    name: Build and push native-audio image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout overlay repository
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream OmniRoute
+        uses: actions/checkout@v4
+        with:
+          repository: diegosouzapw/OmniRoute
+          ref: fc5e2bccd4f70fecf5aab94dfb8136c74ab5a21b
+          path: upstream
+
+      - name: Overlay edited provider files
+        run: |
+          set -euo pipefail
+          OVERLAY="$(pwd)"
+          UPSTREAM="$(pwd)/upstream"
+
+          paths=(
+            "open-sse/config/nativeAudioVoices.ts"
+            "open-sse/config/audioRegistry.ts"
+            "open-sse/executors/kokoroTts.ts"
+            "open-sse/executors/edgeTts.ts"
+            "open-sse/executors/mistralAudio.ts"
+            "open-sse/handlers/audioSpeech.ts"
+            "open-sse/handlers/audioTranscription.ts"
+            "src/shared/constants/providers/noauth.ts"
+            "src/app/(dashboard)/dashboard/cache/media/MediaPageClient.tsx"
+            "src/app/api/v1/models/catalog.ts"
+          )
+
+          for p in "${paths[@]}"; do
+            if [ ! -f "$OVERLAY/$p" ]; then
+              echo "::error::missing overlay file: $p"
+              exit 1
+            fi
+            mkdir -p "$UPSTREAM/$(dirname "$p")"
+            cp "$OVERLAY/$p" "$UPSTREAM/$p"
+            echo "overlaid $p"
+          done
+
+          # The overlay is a partial patch; prove every new file landed.
+          test -f "$UPSTREAM/open-sse/config/nativeAudioVoices.ts"
+          test -f "$UPSTREAM/open-sse/executors/kokoroTts.ts"
+          test -f "$UPSTREAM/open-sse/executors/edgeTts.ts"
+          test -f "$UPSTREAM/open-sse/executors/mistralAudio.ts"
+
+      - name: Verify no secrets in overlay
+        run: |
+          set -euo pipefail
+          # Guard against a key ever being committed alongside the source.
+          if grep -rIlE 'ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}' \
+               --exclude-dir=.git --exclude-dir=upstream . ; then
+            echo "::error::possible GitHub token committed in overlay"
+            exit 1
+          fi
+          echo "no tokens in overlay"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./upstream
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME }}:latest
+          provenance: false
+          build-args: |
+            OMNIROUTE_BUILD_MEMORY_MB=4096
+            OMNIROUTE_USE_TURBOPACK=0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
