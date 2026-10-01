@@ -104,7 +104,8 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
           provenance: false
           build-args: |
-            OMNIROUTE_BUILD_MEMORY_MB=4096
+            OMNIROUTE_BUILD_MEMORY_MB=6144
             OMNIROUTE_USE_TURBOPACK=0
+            OMNIROUTE_BUILD_WORKERS=2
           cache-from: type=gha
           cache-to: type=gha,mode=max
